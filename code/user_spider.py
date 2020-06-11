@@ -10,13 +10,15 @@ import time
 import math
 import codecs
 import base64
+import json
 import random
 from threading import Thread
 from Crypto.Cipher import AES
-from bs4 import BeautifulSoup
+from bs4 import BeautifulSoup, ResultSet
 from utils.sql_save import MySQLCommand
 import multiprocessing as mp
 import utils.all_config as config
+import pandas as pd
 
 
 class UserSpider(object):
@@ -40,6 +42,11 @@ class UserSpider(object):
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) '
                           'Chrome/66.0.3359.181 Safari/537.36'
         }
+        self.host_path = '../data/host.txt'
+        self.cookie_path = '../data/cookie.txt'
+        self.prosiex_start = True  # 是否启动代理IP爬取线程
+        self.ip_queue = mp.Queue()
+
         self.list_queue = mp.Queue()  # 歌单队列
         self.user_queue = mp.Queue()  # 用户队列
         self.task_follow_spider = mp.Queue()  # 粉丝爬取任务队列
@@ -103,6 +110,116 @@ class UserSpider(object):
         enc_seckey = self._rsa_encrypt(i, e, f)
         return enc_text, enc_seckey
 
+    def check_headers(self):
+        cookie_list = []
+        with open(self.cookie_path, 'r') as fp:
+            for i in fp.readlines():
+                i = json.loads(i)
+                cookie_list.append(i)
+        self.headers['Cookie'] = random.choice(cookie_list)['cookie']
+
+    # 检查代理IP是否可用
+    def check_ip(self, proxies):
+        try:
+            header = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) '
+                                    'AppleWebKit/537.36 (KHTML, like Gecko) '
+                                    'Chrome/64.0.3282.186 Safari/537.36'}
+            ip = '://' + proxies['ip'] + ':' + proxies['port']
+            proxies = {'https': 'https' + ip}
+            url = 'https://www.ipip.net/'
+            r = requests.get(url, headers=header, proxies=proxies, timeout=5)
+            r.raise_for_status()
+        except:
+            return False
+        else:
+            print(proxies, '检查通过！')
+            return True
+
+    # 生成IP代理
+    def ip_proxies(self):
+        api = 'http://www.xicidaili.com/wn/{}'
+        header = {
+            'Cookie': '_free_proxy_session=BAh7B0kiD3Nlc3Npb25faWQGOgZFVEkiJTZlOTVjNGQ1MmUxMDlmNzhlNjkwMDU3MDUxMTQ4YTUwBjsAVEkiEF9jc3JmX3Rva2VuBjsARkkiMUpRcU9ySVRNcmlOTytuNm9ZWm53RUFDYzhzTnZCbGlNa0ZIaHJzancvZEU9BjsARg%3D%3D--742b1937a06cc747483cd594752ef2ae80fc4d91; Hm_lvt_0cf76c77469e965d2957f0553e6ecf59=1577952296; Hm_lpvt_0cf76c77469e965d2957f0553e6ecf59=1578016572',
+            'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_12_3) AppleWebKit/'
+                          '537.36 (KHTML, like Gecko) Chrome/56.0.2924.87 Safari/537.36',
+            'Host': 'www.xicidaili.com',
+            'Connection': 'keep-alive',
+            'Accept-Language': 'zh-CN,zh;q=0.9',
+            'Accept-Encoding': 'gzip, deflate, br',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.9',
+            'Cache-Control': 'no-cache'}
+
+        fp = open(self.host_path, 'a+', encoding=('utf-8'))
+        self.ip_pool = []
+        replace = 0
+        for i in range(20):
+            api = api.format(1)
+            try:
+                respones = requests.get(url=api, headers=header)
+                time.sleep(replace)
+                soup = BeautifulSoup(respones.text, 'html.parser')
+                container: ResultSet = soup.find_all(name='tr', attrs={'class': 'odd'})
+            except:
+                replace += 1
+                continue
+            for tag in container:
+                try:
+                    con_soup = BeautifulSoup(str(tag), 'html.parser')
+                    td_list = con_soup.find_all('td')
+                    ip = str(td_list[1])[4:-5]
+                    port = str(td_list[2])[4:-5]
+                    _type = td_list[5].text
+                    IPport = {'ip': ip, 'port': port, 'type': _type.lower()}
+                    if self.check_ip(IPport):
+                        IPport = json.dumps(IPport)
+                        self.ip_pool.append(IPport)
+                        fp.write(IPport)
+                        fp.write('\n')
+                        self.ip_queue.put(IPport)
+                except Exception as e:
+                    print('No IP！')
+            if self.prosiex_start is False:
+                break
+        fp.close()
+
+    # 从host.txt中读取代理
+    def ip_txt(self):
+        print('IP代理爬取不够，从host.txt中添加...')
+        with open(self.host_path, 'r') as fp:
+            ip_port = fp.readlines()
+            for i in ip_port:
+                self.ip_pool.append(i)
+                self.ip_queue.put(i)
+
+    # 使用代理爬取
+    def ip_spider(self, url, data):
+        repeat = 0
+        while repeat < 50:
+            proxies = self.ip_queue.get()
+            proxies = json.loads(proxies)
+            ip = '://' + proxies['ip'] + ':' + proxies['port']
+            proxies = {'https': 'https' + ip}
+            print('使用的代理IP为：', proxies)
+            try:
+                r = requests.post(url, headers=self.headers, data=data, proxies=proxies)
+                time.sleep(2)
+                try:
+                    r.encoding = 'utf-8'
+                    result = r.json()
+                except Exception as e:
+                    print('错误：', e)
+                    return r
+                if 'code' in result.keys():
+                    if result['code'] == -460:
+                        repeat += 1
+                        print('%r的IP代理不可用, 访问URL为%s的网页失败！原因是%s, 重试第%d次' % (proxies, url, result, repeat + 1))
+                return r
+            except Exception as e:
+                print('IP代理为%r, 访问URL为%s的网页失败！原因是%s, 重试第%d次' % (proxies, url, e, repeat+1))
+                repeat += 1
+        print('返回的是none')
+        return None
+
     # 获取粉丝页的json数据
     def get_fans_json(self, url, data):
         repeat = 1
@@ -114,7 +231,6 @@ class UserSpider(object):
                 if r.status_code == 200:
                     # 返回json格式的数据
                     r = r.json()
-                    print(r)
                     if 'follow' in r.keys():
                         if len(r['follow']) == 0:
                             print('抓取到的关注页为空，尝试重新抓取....')
@@ -177,7 +293,6 @@ class UserSpider(object):
                 result[key] = value
             except:
                 result.setdefault(key, '')
-        # print('music_list:', result)
         self.list_queue.put(result)
         return result
 
@@ -190,9 +305,7 @@ class UserSpider(object):
                 list_id = []
                 result = {}
                 user_info = user_all_info[0]['creator']
-
                 for i in range(len(user_all_info)):
-                    print('user_all_info: ', user_all_info[i])
                     lists = self.music_list(user_all_info[i])
                     music_list.append(lists)
                     list_id.append(user_all_info[i]['id'])
@@ -280,29 +393,27 @@ class UserSpider(object):
 
     # 从数据库获取歌手id
     def get_singer_id(self):
-        mysql_command = MySQLCommand()
-        mysql_command.connectdb()
-        mysql_command.cursor.execute("select homepage_id from singer limit 0, 10")
-        singer_list = mysql_command.cursor.fetchall()
-        for singer_id in singer_list:
-            singer_id = singer_id['homepage_id']
-            if len(singer_id) > 0:
-                print('开始获取歌手ID为：%s的信息。。。' % singer_id)
-                url = 'https://music.163.com/user/home?id=%s' % singer_id
+        spider_data = pd.read_csv('hot_list_467287208.csv')
+
+        for user_id in spider_data['user_id'].to_list():
+            user_id = str(user_id).strip()
+            if len(user_id) > 0:
+                print('开始获取ID为：%s的用户信息。。。' % user_id)
+                url = 'https://music.163.com/user/home?id=%s' % user_id
                 replace = 0
                 while replace < 3:
                     try:
                         res = requests.get(url, headers=self.headers)
-                        time.sleep(2)
+                        time.sleep(replace)
                         soup = BeautifulSoup(res.text, 'html5lib')
                         count = soup.find('ul', attrs={'class': 'data s-fc3 f-cb'})
                         try:
                             count.find_all('strong')
                             break
                         except Exception as e:
-                            print('重新爬取歌手信息！失败原因是%s' % e)
+                            print('重新爬取用户信息！失败原因是%s' % e)
                             replace += 1
-                            time.sleep(2)
+                            time.sleep(1)
                     except Exception as e:
                         print(e)
                         print(url)
@@ -315,19 +426,24 @@ class UserSpider(object):
                 except Exception as e:
                     print(e)
                     print('count: ', count)
-                    print('id: ', singer_id)
+                    print('id: ', user_id)
                     continue
                 if user_num[1] > 1000:
                     user_num[1] = 1000
                 if user_num[2] > 1000:
                     user_num[2] = 1000
-                # self.get_follow_info([singer_id, user_num[1]])
-                # self.get_follows_info([singer_id, user_num[2]])
-                self.get_fans_info(singer_id)
+
+                if user_num[1] != 0:
+                    self.get_follow_info([user_id, user_num[1]])
+                if user_num[2] != 0:
+                    self.get_follows_info([user_id, user_num[2]])
+                self.get_fans_info(user_id)
 
                 #self.task_follows_spider.put([singer_id, user_num[1]])
                 #self.task_follow_spider.put([singer_id, user_num[2]])
                 # self.task_list_spider.put(singer_id)
+            print('ID为：%s的用户信息爬去完成！' % user_id)
+            break
 
     # 保存歌单信息
     def save_music_list(self):
@@ -335,6 +451,7 @@ class UserSpider(object):
         mysql_command.connectdb()
         while True:
             result = self.list_queue.get()
+            print('爬去的歌单结果: ', result)
             mysql_command.insert_list(result)
 
     # 保存用户信息
@@ -343,6 +460,7 @@ class UserSpider(object):
         mysql_command.connectdb()
         while True:
             result = self.user_queue.get()
+            print('爬去的用户结果: ', result)
             mysql_command.insert_user(result)
 
     def spider_main(self):
