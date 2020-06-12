@@ -19,6 +19,7 @@ from utils.sql_save import MySQLCommand
 import multiprocessing as mp
 import utils.all_config as config
 import pandas as pd
+from apscheduler.schedulers.background import BackgroundScheduler
 
 
 class UserSpider(object):
@@ -132,7 +133,7 @@ class UserSpider(object):
         except:
             return False
         else:
-            print(proxies, '检查通过！')
+            print(proxies, '--->检查通过！')
             return True
 
     # 生成IP代理
@@ -202,7 +203,7 @@ class UserSpider(object):
             print('使用的代理IP为：', proxies)
             try:
                 r = requests.post(url, headers=self.headers, data=data, proxies=proxies)
-                time.sleep(2)
+                time.sleep(1)
                 try:
                     r.encoding = 'utf-8'
                     result = r.json()
@@ -217,13 +218,13 @@ class UserSpider(object):
             except Exception as e:
                 print('IP代理为%r, 访问URL为%s的网页失败！原因是%s, 重试第%d次' % (proxies, url, e, repeat+1))
                 repeat += 1
-        print('返回的是none')
+        print('IP代理---->返回的是none')
         return None
 
     # 获取粉丝页的json数据
     def get_fans_json(self, url, data):
         repeat = 1
-        while repeat < 5:
+        while repeat < 15:
             try:
                 r = requests.post(url, headers=self.headers, data=data)
                 time.sleep(repeat)
@@ -235,12 +236,20 @@ class UserSpider(object):
                         if len(r['follow']) == 0:
                             print('抓取到的关注页为空，尝试重新抓取....')
                             repeat += 1
+                            if 5 < repeat < 10:
+                                self.check_headers()
+                            elif repeat > 10:
+                                return self.ip_spider(url, data)
                         else:
                             return r
                     if 'followeds' in r.keys():
                         if len(r['followeds']) == 0:
                             print('抓取到的粉丝页为空，尝试重新抓取....')
                             repeat += 1
+                            if 5 < repeat < 10:
+                                self.check_headers()
+                            elif repeat > 10:
+                                return self.ip_spider(url, data)
                         else:
                             return r
                     if 'playlist' in r.keys():
@@ -444,6 +453,13 @@ class UserSpider(object):
                 # self.task_list_spider.put(singer_id)
             print('ID为：%s的用户信息爬去完成！' % user_id)
             break
+
+
+    def init_scheduler(self):
+        # BackgroundScheduler: 适合于要求任何在程序后台运行的情况，当希望调度器在应用后台执行时使用
+        scheduler = BackgroundScheduler()
+        scheduler.add_job(self.ip_proxies(), 'interval', seconds=360, id='my_heartbeat')
+        scheduler.start()
 
     # 保存歌单信息
     def save_music_list(self):
