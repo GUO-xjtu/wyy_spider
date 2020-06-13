@@ -25,6 +25,7 @@ from apscheduler.schedulers.background import BackgroundScheduler
 class UserSpider(object):
     def __init__(self):
         self.file_path = '../data/'  # 用户信息保存位置
+        self.not_exist_user_path = '/home/cyguo/wyy_spider/data/not_exist_user.csv'
         self.headers = {
             'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8',
             'Accept-Encoding': 'gzip, deflate',
@@ -45,8 +46,10 @@ class UserSpider(object):
         }
         self.host_path = '../data/host.txt'
         self.cookie_path = '../data/cookie.txt'
-        self.prosiex_start = True  # 是否启动代理IP爬取线程
         self.ip_queue = mp.Queue()
+        self.prosiex_start = False  # 是否开始使用代理爬取任务
+        self.prosiex_time = None  # 开始使用IP代理的时间
+        # self.ip_pool = []
 
         self.list_queue = mp.Queue()  # 歌单队列
         self.user_queue = mp.Queue()  # 用户队列
@@ -133,11 +136,13 @@ class UserSpider(object):
         except:
             return False
         else:
-            print(proxies, '--->检查通过！')
+            print('爬取到的:', proxies, '代理IP--->检查通过！')
             return True
 
     # 生成IP代理
     def ip_proxies(self):
+        tsp = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(time.time()))
+        print("%r 开启爬取IP代理的定时任务....." % tsp)
         api = 'http://www.xicidaili.com/wn/{}'
         header = {
             'Cookie': '_free_proxy_session=BAh7B0kiD3Nlc3Npb25faWQGOgZFVEkiJTZlOTVjNGQ1MmUxMDlmNzhlNjkwMDU3MDUxMTQ4YTUwBjsAVEkiEF9jc3JmX3Rva2VuBjsARkkiMUpRcU9ySVRNcmlOTytuNm9ZWm53RUFDYzhzTnZCbGlNa0ZIaHJzancvZEU9BjsARg%3D%3D--742b1937a06cc747483cd594752ef2ae80fc4d91; Hm_lvt_0cf76c77469e965d2957f0553e6ecf59=1577952296; Hm_lpvt_0cf76c77469e965d2957f0553e6ecf59=1578016572',
@@ -150,19 +155,21 @@ class UserSpider(object):
             'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.9',
             'Cache-Control': 'no-cache'}
 
-        fp = open(self.host_path, 'a+', encoding=('utf-8'))
-        self.ip_pool = []
-        replace = 0
-        for i in range(20):
+        ip_num = 0
+        replace = 1
+        ip_port_time = time.time()
+        while True:
             api = api.format(1)
             try:
-                respones = requests.get(url=api, headers=header)
+                respones = requests.get(url=api, headers=header, timeout=10)
                 time.sleep(replace)
                 soup = BeautifulSoup(respones.text, 'html.parser')
-                container: ResultSet = soup.find_all(name='tr', attrs={'class': 'odd'})
+                container = soup.find_all(name='tr', attrs={'class': 'odd'})
             except:
                 replace += 1
                 continue
+            if self.ip_queue.qsize() == 0 and time.time() - ip_port_time > 20:
+                self.ip_txt()
             for tag in container:
                 try:
                     con_soup = BeautifulSoup(str(tag), 'html.parser')
@@ -173,48 +180,63 @@ class UserSpider(object):
                     IPport = {'ip': ip, 'port': port, 'type': _type.lower()}
                     if self.check_ip(IPport):
                         IPport = json.dumps(IPport)
-                        self.ip_pool.append(IPport)
-                        fp.write(IPport)
-                        fp.write('\n')
+                        # self.ip_pool.append(IPport)
+                        try:
+                            fp = open(self.host_path, 'a+', encoding=('utf-8'))
+                            fp.write(IPport)
+                            fp.write('\n')
+                            fp.close()
+                        except:
+                            pass
+                        ip_port_time = time.time()
                         self.ip_queue.put(IPport)
+                        ip_num += 1
                 except Exception as e:
                     print('No IP！')
-            if self.prosiex_start is False:
+            if ip_num > 30:
                 break
-        fp.close()
 
     # 从host.txt中读取代理
     def ip_txt(self):
         print('IP代理爬取不够，从host.txt中添加...')
+        ip_list = []
         with open(self.host_path, 'r') as fp:
             ip_port = fp.readlines()
             for i in ip_port:
-                self.ip_pool.append(i)
-                self.ip_queue.put(i)
+                # self.ip_pool.append(i)
+                ip_list.append(i)
+        ips = random.choices(ip_list, k=2)
+        for i in ips:
+            self.ip_queue.put(i)
 
     # 使用代理爬取
-    def ip_spider(self, url, data):
+    def ip_spider(self, url, data, task):
         repeat = 0
         while repeat < 50:
             proxies = self.ip_queue.get()
             proxies = json.loads(proxies)
             ip = '://' + proxies['ip'] + ':' + proxies['port']
             proxies = {'https': 'https' + ip}
-            print('使用的代理IP为：', proxies)
+            print('使用的代理IP为：', proxies, '使用此ip爬取%s任务....' % task)
             try:
-                r = requests.post(url, headers=self.headers, data=data, proxies=proxies)
+                r = requests.post(url, headers=self.headers, data=data, proxies=proxies, timeout=10)
                 time.sleep(1)
                 try:
                     r.encoding = 'utf-8'
                     result = r.json()
                 except Exception as e:
-                    print('错误：', e)
+                    print('使用IP代理爬取后转换json失败，错误：', e)
                     return r
                 if 'code' in result.keys():
                     if result['code'] == -460:
                         repeat += 1
                         print('%r的IP代理不可用, 访问URL为%s的网页失败！原因是%s, 重试第%d次' % (proxies, url, result, repeat + 1))
-                return r
+                try:
+                    return r
+                except Exception as e:
+                    print('使用代理成功，但为转成json，返回的是：', r)
+                    print('以上错误的原因是：', e)
+                    return None
             except Exception as e:
                 print('IP代理为%r, 访问URL为%s的网页失败！原因是%s, 重试第%d次' % (proxies, url, e, repeat+1))
                 repeat += 1
@@ -222,24 +244,38 @@ class UserSpider(object):
         return None
 
     # 获取粉丝页的json数据
-    def get_fans_json(self, url, data):
+    def get_fans_json(self, url, data, task):
         repeat = 1
         while repeat < 15:
             try:
-                r = requests.post(url, headers=self.headers, data=data)
-                time.sleep(repeat)
-                r.encoding = "utf-8"
+                if not self.prosiex_start or time.time() - self.prosiex_time > 43200:
+                    r = requests.post(url, headers=self.headers, data=data)
+                    time.sleep(repeat)
+                    r.encoding = "utf-8"
+                    self.prosiex_start = False
+                else:
+                    print('----->由于主机ip已被封，尝试使用代理IP抓取%s任务<-----' % task)
+                    r = self.ip_spider(url, data, task)
+
                 if r.status_code == 200:
                     # 返回json格式的数据
                     r = r.json()
+                    # print(r.keys())
                     if 'follow' in r.keys():
                         if len(r['follow']) == 0:
                             print('抓取到的关注页为空，尝试重新抓取....')
                             repeat += 1
                             if 5 < repeat < 10:
+                                print('尝试更换headers重新抓去....')
                                 self.check_headers()
                             elif repeat > 10:
-                                return self.ip_spider(url, data)
+                                print('尝试使用代理IP抓取%s任务....' % task)
+                                self.prosiex_start = True
+                                self.prosiex_time = time.time()
+                                try:
+                                    return self.ip_spider(url, data, task).json()
+                                except:
+                                    return None
                         else:
                             return r
                     if 'followeds' in r.keys():
@@ -249,13 +285,20 @@ class UserSpider(object):
                             if 5 < repeat < 10:
                                 self.check_headers()
                             elif repeat > 10:
-                                return self.ip_spider(url, data)
+                                print('尝试使用代理IP抓取%s任务....' % task)
+                                self.prosiex_start = True
+                                self.prosiex_time = time.time()
+                                try:
+                                    return self.ip_spider(url, data, task).json()
+                                except:
+                                    return None
                         else:
                             return r
                     if 'playlist' in r.keys():
                         return r
             except Exception as e:
-                print("第%d次获取url为%s的粉丝页信息失败，原因是%s" % (repeat, url, e))
+                print("第%d次获取url为%s的信息失败，原因是%s" % (repeat, url, e))
+                print('r是：', r)
                 repeat += 1
         return None
 
@@ -332,15 +375,15 @@ class UserSpider(object):
 
     # 获取歌单信息
     def get_fans_info(self, task_id):
-        print('爬取用户为%s的歌单任务...' % task_id)
+        print('爬取用户为%s的歌单任务....' % task_id)
         # 粉丝数据
-        uri = 'https://music.163.com/weapi/user/playlist?csrf_token=cdee144903c5a32e6752f50180329fc9'
+        url = 'https://music.163.com/weapi/user/playlist?csrf_token=cdee144903c5a32e6752f50180329fc9'
         # uid为粉丝id
         id_msg = '{uid: "' + str(task_id) + '", wordwrap: "7", offset: "0", ' \
                                         'total: "true", limit: "36", csrf_token: "cdee144903c5a32e6752f50180329fc9"}'
         params, encSecKey = self.get_params(id_msg)
         data = {'params': params, 'encSecKey': encSecKey}
-        user_json = self.get_fans_json(uri, data)
+        user_json = self.get_fans_json(url, data, '歌单')
         if user_json is not None:
             self.handle_info(user_json, task_id)
 
@@ -357,7 +400,7 @@ class UserSpider(object):
                      ', total: "true", limit: "36", csrf_token: "cdee144903c5a32e6752f50180329fc9"}'
             enc_text, enc_seckey = self.get_params(id_msg)
             data = {'params': enc_text, 'encSecKey': enc_seckey}
-            user_json = self.get_fans_json(url, data)
+            user_json = self.get_fans_json(url, data, '关注的人')
             if user_json is None:
                 break
             try:
@@ -385,7 +428,7 @@ class UserSpider(object):
                 offset) + ', total: "true", limit: "20", csrf_token: "cdee144903c5a32e6752f50180329fc9"}'
             enc_text, enc_seckey = self.get_params(id_msg)
             data = {'params': enc_text, 'encSecKey': enc_seckey}
-            user_json = self.get_fans_json(url, data)
+            user_json = self.get_fans_json(url, data, '粉丝')
             if user_json is None:
                 break
             try:
@@ -400,14 +443,14 @@ class UserSpider(object):
             if page > pages:
                 return
 
-    # 从数据库获取歌手id
-    def get_singer_id(self):
-        spider_data = pd.read_csv('hot_list_467287208.csv')
+    # 从not_exist_user.csv获取用户id
+    def get_user_id(self):
+        spider_data = pd.read_csv(self.not_exist_user_path)
 
         for user_id in spider_data['user_id'].to_list():
             user_id = str(user_id).strip()
-            if len(user_id) > 0:
-                print('开始获取ID为：%s的用户信息。。。' % user_id)
+            if len(user_id) > 6:
+                print('开始获取ID为：%s的用户信息....' % user_id)
                 url = 'https://music.163.com/user/home?id=%s' % user_id
                 replace = 0
                 while replace < 3:
@@ -446,19 +489,18 @@ class UserSpider(object):
                     self.get_follow_info([user_id, user_num[1]])
                 if user_num[2] != 0:
                     self.get_follows_info([user_id, user_num[2]])
+
                 self.get_fans_info(user_id)
-
-                #self.task_follows_spider.put([singer_id, user_num[1]])
-                #self.task_follow_spider.put([singer_id, user_num[2]])
-                # self.task_list_spider.put(singer_id)
+                # self.task_follows_spider.put([user_id, user_num[1]])
+                # self.task_follow_spider.put([user_id, user_num[2]])
+                # self.task_list_spider.put(user_id)
             print('ID为：%s的用户信息爬去完成！' % user_id)
-            break
 
-
+    # 开启爬取代理ip定时任务
     def init_scheduler(self):
         # BackgroundScheduler: 适合于要求任何在程序后台运行的情况，当希望调度器在应用后台执行时使用
         scheduler = BackgroundScheduler()
-        scheduler.add_job(self.ip_proxies(), 'interval', seconds=360, id='my_heartbeat')
+        scheduler.add_job(self.ip_proxies(), 'interval', seconds=120, id='my_heartbeat')
         scheduler.start()
 
     # 保存歌单信息
@@ -467,7 +509,7 @@ class UserSpider(object):
         mysql_command.connectdb()
         while True:
             result = self.list_queue.get()
-            print('爬去的歌单结果: ', result)
+            # print('爬去的歌单结果: ', result)
             mysql_command.insert_list(result)
 
     # 保存用户信息
@@ -476,13 +518,17 @@ class UserSpider(object):
         mysql_command.connectdb()
         while True:
             result = self.user_queue.get()
-            print('爬去的用户结果: ', result)
+            # print('爬去的用户结果: ', result)
             mysql_command.insert_user(result)
 
     def spider_main(self):
         Thread(target=self.save_music_list, args=()).start()
+        time.sleep(0.3)
         Thread(target=self.save_user_info, args=()).start()
-        self.get_singer_id()
+        time.sleep(0.3)
+        Thread(target=self.init_scheduler, args=()).start()
+        time.sleep(0.3)
+        self.get_user_id()
 
 
 if __name__ == '__main__':
