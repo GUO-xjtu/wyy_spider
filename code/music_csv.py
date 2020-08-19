@@ -215,7 +215,7 @@ class MusicSpider(object):
             except Exception as e:
                 print('第%d次获取ID为%s歌曲详情失败！原因是%s ' % (repeat, m_id, e))
                 repeat += 1
-            return
+            break
 
         try:
             for index, info in enumerate(soup.find_all('p', attrs={'class': 'des s-fc4'})):

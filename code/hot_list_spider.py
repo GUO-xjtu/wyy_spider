@@ -17,7 +17,7 @@ from bs4 import BeautifulSoup
 
 class ListCsv(object):
     def __init__(self):
-        self.listid = pd.read_csv('../music_data/hot_list.csv', dtype={'list_id': str})
+        self.listid = pd.read_csv('target_list.csv', dtype={'id': str})
         self.headers = {
             'accept-encoding': 'gzip, deflate, br',
             'cookie': '_iuqxldmzr_=32; _ntes_nnid=1ea4c0a3bf7ef4709cbd1cc9344aac39,1552463572427; _ntes_nuid=1ea4c0a3bf7ef4709cbd1cc9344aac39; WM_TID=0sJ%2Br5BotwpEERVAARN89S2kZb9zjMn5; ntes_kaola_ad=1; WM_NI=VdwnwgpqLzjKaXxywyfT%2BpbMp0h4a7mPlXF%2FIMEPmTkfdB%2FOfXvCgYpaJ%2FD7hCYKNSZtJuMDzO2DfcqcQUwdSx1jraMcuOeY2UZexUHFqxYFTOeAy5%2B07TOBtOJ1HpvadVA%3D; WM_NIKE=9ca17ae2e6ffcda170e2e6eeadea4a90e9b88ed95df18a8fb7c54e839f8faeb87abcaba894e240ad978883d82af0fea7c3b92a96bcb98ff66db4af849be941a388b89af673a68ce591e147b4f0a8d5e43daf90a4b9c5258b938bb1f060a9baaca3ae45a688baa4e653b4bf86d0c73dac9d97accd599aac8696d050ba91fea5e569b3bd9fb6f67091a8ff8bf16b8fbdbbb0e853f28b9686fb5f8c9abf99dc4e9891aba2fc3fe9f0f9b5ce4ab89186d2cb7cb6bfacb7c437e2a3; JSESSIONID-WYYY=UcRlS8UIuN%5C45yS73geuzr1%5C3ZCp2Q9ZU9nAcbhSuPAFpa3h9o%2BHDM3QeGhoxqT5R0xAOF0IJXTFMMwMt8vHjDk1e0%2BOR5CrysQpRJodDlPrjTDxIwEIs2H2cddBrM%2B3VsC22BQJvcrUgUByjDh6%2FJrqeO3J%2B58db7juzAGfQ15oRB1f%3A1577276498310',
@@ -34,7 +34,7 @@ class ListCsv(object):
         }
         self.cookie_path = '../data/cookie.txt'
         self.csv_result = []
-        self.num = 6
+        self.num = 0
         self.save_num = 0
 
     def check_headers(self):
@@ -47,19 +47,20 @@ class ListCsv(object):
 
     def spider_task(self):
         num = 0
-        for i in self.listid['list_id']:
+        for i, tag in zip(self.listid['id'].values.tolist(), self.listid['tags'].values.tolist()):
             if num >= self.num:
-                print('开始爬取第%d个歌单' % num)
-                self.list_id(i)
+                if len(str(tag)) < 5:
+                    print('开始爬取第%d个歌单' % num)
+                    self.list_id(i)
             num += 1
         pd.DataFrame(self.csv_result,
                      columns=['user_id', 'list_name', 'list_id', 'createTime', 'updateTime', 'description',
                               'trackCount', 'playCount',
                               'authority', 'specialType', 'expertTags', 'tags', 'subscribedCount', 'cloudTrackCount',
                               'trackUpdateTime', 'trackNumberUpdateTime', 'highQuality', 'musicId', 'userLikeId',
-                              'hotlist']).to_csv('list_csv/hot_list_end.csv', index=None)
+                              'hotlist']).to_csv('list_csv/list_end.csv', index=None)
         self.save_num = 0
-        print('保存hot_list文件成功....')
+        print('保存list文件成功....')
         self.csv_result = []
 
     def extract_id(self, list_id, music_id, user_id, simple_list, list_dict):
@@ -90,43 +91,75 @@ class ListCsv(object):
             lid += list_str
             lid += ','
         print('歌单%s有歌曲%d首，喜欢的人%d个，热门歌单%d个' % (list_id, m_num, u_num, l_num))
-        result = {'id': list_id, 'musicId': mid, 'userLikeId': uid, 'hotlist': lid}
+        result = {'list_id': list_id, 'musicId': mid, 'userLikeId': uid, 'hotlist': lid}
         result_all = {**list_dict, **result}
         self.save_csv(result_all)
         print('==='*30)
 
     def details_id(self, soup):
-        gedan_name=soup.find_all('h2', class_='f-ff2 f-brk')
-        list_name=gedan_name[0].string
+        list_name = ''
+        try:
+            gedan_name=soup.find_all('h2', class_='f-ff2 f-brk')
+            list_name=gedan_name[0].string
+        except:
+            pass
         print('listName:', list_name)
-        gedan_creater=soup.find_all('a', class_='s-fc7')
-        user_id=gedan_creater[0]['href'].replace('/user/home?id=', '').strip()
+        user_id = ''
+        try:
+            gedan_creater=soup.find_all('a', class_='s-fc7')
+            user_id=gedan_creater[0]['href'].replace('/user/home?id=', '').strip()
+        except:
+            pass
         print('user_id:', user_id)
-        gedan_create_time = soup.find_all('span', class_='time s-fc4')
-        create_time = gedan_create_time[0].string.encode('utf-8').decode('gbk')
-        createTime = create_time[0:10]
-        timeArray = time.strptime(createTime, "%Y-%m-%d")
-        createTime = int(time.mktime(timeArray))
+        createTime = 0
+        try:
+            gedan_create_time = soup.find_all('span', class_='time s-fc4')
+            create_time = gedan_create_time[0].string.encode('utf-8').decode('gbk')
+            createTime = create_time[0:10]
+            timeArray = time.strptime(createTime, "%Y-%m-%d")
+            createTime = int(time.mktime(timeArray))
+        except:
+            pass
         print('createtime:', createTime)
-        favorite = soup.find_all('a', class_='u-btni u-btni-fav')
-        subscribedCount = dict(favorite[0].attrs)['data-count']
+        subscribedCount = '0'
+        try:
+            favorite = soup.find_all('a', class_='u-btni u-btni-fav')
+            subscribedCount = dict(favorite[0].attrs)['data-count']
+        except:
+            pass
         print('subscribedCount:', subscribedCount)
-        comment = soup.find_all('span', id='cnt_comment_count')
-        comment_count = comment[0].string
-        if comment_count == '评论':
-            comment_count = '0'
+        comment_count = '0'
+        try:
+            comment = soup.find_all('span', id='cnt_comment_count')
+            comment_count = comment[0].string
+            if comment_count == '评论':
+                comment_count = '0'
+        except:
+            pass
         print('comment_count:', comment_count)
-        play = soup.find_all('strong', id='play-count')
-        playCount = play[0].string
-        print('plauCount:', playCount)
-        playlist = soup.find_all('span', id='playlist-track-count')
-        trackCount = playlist[0].string
+        playCount = '0'
+        try:
+            play = soup.find_all('strong', id='play-count')
+            playCount = play[0].string
+        except:
+            pass
+        print('playCount:', playCount)
+        trackCount = '0'
+        try:
+            playlist = soup.find_all('span', id='playlist-track-count')
+            trackCount = playlist[0].string
+        except:
+            pass
         print('trackCount:', trackCount)
-        tag = soup.find_all('div', class_='tags f-cb')
-        tag = tag[0].find_all('a', class_='u-tag')
         tags = []
-        for i in tag:
-            tags.append(i.string)
+        try:
+            tag = soup.find_all('div', class_='tags f-cb')
+            tag = tag[0].find_all('a', class_='u-tag')
+            tags = []
+            for i in tag:
+                tags.append(i.string)
+        except:
+            pass
         print('tags:', tags)
         try:
             description = soup.find_all('p', class_='intr f-brk')
@@ -153,7 +186,7 @@ class ListCsv(object):
                     self.check_headers()
                 headers = self.headers
                 res = requests.get(url, headers=headers)
-                time.sleep(replace + 2)
+                time.sleep(replace)
                 soup = BeautifulSoup(res.text, 'html5lib')
                 list_dict = self.details_id(soup)
 
@@ -194,7 +227,7 @@ class ListCsv(object):
 
     def save_csv(self, result_dict):
         result = []
-        for key in ['user_id', 'list_name', 'id', 'createTime', 'updateTime', 'description', 'trackCount', 'playCount',
+        for key in ['user_id', 'list_name', 'list_id', 'createTime', 'updateTime', 'description', 'trackCount', 'playCount',
           'authority', 'specialType', 'expertTags', 'tags', 'subscribedCount', 'cloudTrackCount',
           'trackUpdateTime', 'trackNumberUpdateTime', 'highQuality', 'musicId', 'userLikeId', 'hotlist']:
             result.append(result_dict[key])
@@ -203,9 +236,9 @@ class ListCsv(object):
         if self.save_num > 5000:
             pd.DataFrame(self.csv_result, columns=['user_id', 'list_name', 'list_id', 'createTime', 'updateTime', 'description', 'trackCount', 'playCount',
           'authority', 'specialType', 'expertTags', 'tags', 'subscribedCount', 'cloudTrackCount',
-          'trackUpdateTime', 'trackNumberUpdateTime', 'highQuality', 'musicId', 'userLikeId', 'hotlist']).to_csv('list_csv/hot_list_%s.csv' % str(result_dict['id']), index=None)
+          'trackUpdateTime', 'trackNumberUpdateTime', 'highQuality', 'musicId', 'userLikeId', 'hotlist']).to_csv('list_csv/list_%s.csv' % str(result_dict['list_id']), index=None)
             self.save_num = 0
-            print('保存hot_list文件成功....')
+            print('保存list文件成功....')
             self.csv_result = []
 
 

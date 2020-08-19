@@ -18,7 +18,7 @@ from utils.sql_save import MySQLCommand
 
 class ListCsv(object):
     def __init__(self):
-        self.listid = pd.read_csv('/Users/apple/PycharmProjects/WYY_sprider/demo/spider.csv', dtype={'list_id': str})
+        self.listid = pd.read_csv('/Users/guochenye/Downloads/target_list.csv', dtype={'list_id': str})
         self.headers = {
             'accept-encoding': 'gzip, deflate, br',
             'cookie': '_iuqxldmzr_=32; _ntes_nnid=1ea4c0a3bf7ef4709cbd1cc9344aac39,1552463572427; _ntes_nuid=1ea4c0a3bf7ef4709cbd1cc9344aac39; WM_TID=0sJ%2Br5BotwpEERVAARN89S2kZb9zjMn5; ntes_kaola_ad=1; WM_NI=VdwnwgpqLzjKaXxywyfT%2BpbMp0h4a7mPlXF%2FIMEPmTkfdB%2FOfXvCgYpaJ%2FD7hCYKNSZtJuMDzO2DfcqcQUwdSx1jraMcuOeY2UZexUHFqxYFTOeAy5%2B07TOBtOJ1HpvadVA%3D; WM_NIKE=9ca17ae2e6ffcda170e2e6eeadea4a90e9b88ed95df18a8fb7c54e839f8faeb87abcaba894e240ad978883d82af0fea7c3b92a96bcb98ff66db4af849be941a388b89af673a68ce591e147b4f0a8d5e43daf90a4b9c5258b938bb1f060a9baaca3ae45a688baa4e653b4bf86d0c73dac9d97accd599aac8696d050ba91fea5e569b3bd9fb6f67091a8ff8bf16b8fbdbbb0e853f28b9686fb5f8c9abf99dc4e9891aba2fc3fe9f0f9b5ce4ab89186d2cb7cb6bfacb7c437e2a3; JSESSIONID-WYYY=UcRlS8UIuN%5C45yS73geuzr1%5C3ZCp2Q9ZU9nAcbhSuPAFpa3h9o%2BHDM3QeGhoxqT5R0xAOF0IJXTFMMwMt8vHjDk1e0%2BOR5CrysQpRJodDlPrjTDxIwEIs2H2cddBrM%2B3VsC22BQJvcrUgUByjDh6%2FJrqeO3J%2B58db7juzAGfQ15oRB1f%3A1577276498310',
@@ -36,7 +36,7 @@ class ListCsv(object):
         self.cookie_path = '../data/cookie.txt'
         self.id_queue = Queue()
         self.txt_queue = Queue()
-        self.num = 243114
+        self.num = 0
 
     def check_headers(self):
         cookie_list = []
@@ -99,7 +99,7 @@ class ListCsv(object):
                     self.check_headers()
                 headers = self.headers
                 res = requests.get(url, headers=headers)
-                time.sleep(replace + 2)
+                time.sleep(replace)
                 soup = BeautifulSoup(res.text, 'html5lib')
                 try:
                     music = soup.find('ul', attrs={'class': 'f-hide'})
