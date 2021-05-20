@@ -33,7 +33,7 @@ class MusicSpider(object):
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) '
                           'Chrome/66.0.3359.181 Safari/537.36'
         }
-        self.data_list = pd.read_csv('../music.csv')
+        self.data_list = pd.read_csv('../data/csv_file/music_spider.csv')
         self.num = 0  # 从第0首歌曲开始爬取
         self.music = False
         self.cookie_path = '../data/cookie.txt'
@@ -190,14 +190,15 @@ class MusicSpider(object):
     # 获取歌曲详情
     def get_music_info(self, music):
         music_dict = {}
-        lynic_result = self.get_lynic(music)
+        # lynic_result = self.get_lynic(music)
+        lynic_result = {'song_lynic': '', 'lynic_user': ''}
         m_id = music
         music_dict['music_id'] = m_id
         simple_music = []
         contain_list = []
         url = 'https://music.163.com/song?id=%s' % m_id
         repeat = 0
-        while repeat < 15:
+        while repeat < 5:
             try:
                 response = requests.get(url, headers=self.headers)
                 time.sleep(repeat)
@@ -211,7 +212,7 @@ class MusicSpider(object):
                 except Exception as e:
                     music_dict['music_name'] = ''
                     print('未找到ID为%s歌曲的歌名，原因是%s' % (m_id, e))
-                    repeat += 2
+                    repeat += 1
             except Exception as e:
                 print('第%d次获取ID为%s歌曲详情失败！原因是%s ' % (repeat, m_id, e))
                 repeat += 1
@@ -308,7 +309,6 @@ class MusicSpider(object):
                         self.save_music(num, result)
                         break
             num += 1
-            time.sleep(1)
 
 
 if __name__ == '__main__':

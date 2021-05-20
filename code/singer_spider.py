@@ -73,6 +73,7 @@ class SingerSpider(object):
             artist_name = artist.string
             artist_id = artist['href'].replace('/artist?id=', '').strip()
             singer_homepage, song_dict = self.get_singer_info(artist_id)
+            print(artist_id, artist_name, singer_homepage)
             try:
                 self.mysqlCommand.insert_singer(artist_id, artist_name, singer_homepage, song_dict)
             except Exception as msg:
